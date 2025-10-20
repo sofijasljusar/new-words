@@ -1,0 +1,11 @@
+Today I tried to run a prototype to see if it works at all. I debugged some things like recorder sending empty body to transcriber and found the format that works for the hardware. It works fine for the initial version and completes the task. So, I can continue referring to this prototype and keep learning about the things that I need for this project. Also, I saw some points that I missed in planning, like getting translation from somewhere.
+
+To run the prototype:
+
+in python project ->
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8000
+
+then run java program and say something:)
