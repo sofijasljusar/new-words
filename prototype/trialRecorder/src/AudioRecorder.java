@@ -135,10 +135,24 @@ public class AudioRecorder {
             microphone.stop();
             microphone.close();
         }
+
+        while (!queue.isEmpty()) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
         senderPool.shutdown();
+
         try {
-            senderPool.awaitTermination(5, TimeUnit.SECONDS);
+            if (!senderPool.awaitTermination(10, TimeUnit.SECONDS)) {
+                senderPool.shutdownNow();
+            }
         } catch (InterruptedException e) {
+            senderPool.shutdownNow();
             Thread.currentThread().interrupt();
         }
         System.out.println("Recorder stopped.");
