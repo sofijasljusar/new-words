@@ -22,6 +22,7 @@ except Exception:
 MODEL_SIZE = "small"   # change to "medium" or "base" depending on your machine
 KNOWN_CSV = Path("known_words.csv")  # file in repo root: word,meaning
 STOPWORDS = set(["的","是","了","我","你","在","和","有","就"])  # common Chinese stopwords to ignore
+latest_transcript = ""
 # ------------------------
 
 app = FastAPI(title="Local Transcriber")
@@ -76,6 +77,7 @@ async def transcribe(request: Request):
     Returns JSON: { "transcript": "...", "new_words": ["..."] }
     Optional query param ?autolearn=true to append new words to known_words.csv
     """
+    global latest_transcript
     print("Headers:", request.headers)
     body = await request.body()
     print("Length of body:", len(body))
@@ -97,7 +99,7 @@ async def transcribe(request: Request):
             # openai whisper
             result = model.transcribe(wav_path)
             transcript = result["text"]
-
+        latest_transcript = transcript
         # simple segmentation & new-word detection
         known = read_known_words()
         words = segment_chinese(transcript)
@@ -136,6 +138,10 @@ async def transcribe(request: Request):
             os.remove(wav_path)
         except Exception:
             pass
+
+@app.get("/latest")
+async def get_latest():
+    return {"transcript": latest_transcript}
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
