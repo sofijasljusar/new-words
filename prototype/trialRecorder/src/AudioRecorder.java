@@ -29,6 +29,22 @@ public class AudioRecorder {
         format = new AudioFormat(SAMPLE_RATE, SAMPLE_SIZE_BITS, CHANNELS, SIGNED, BIG_ENDIAN);
     }
 
+    private boolean isSilent(byte[] pcmData, int peakThreshold) { // list of bytes from the mic
+        for (int i = 0; i < pcmData.length - 1; i += 2) { // sound sample uses 2 bytes
+            // pcmData[i] = first byte (low byte)
+            // pcmData[i+1] = second byte (high byte)
+            // << 8 means “move this byte 8 bits to the left”
+            // & 0xFF → make sure this byte is treated as 0–255 (unsigned)
+            // | (bitwise OR) combines the high byte and low byte into one single 16-bit number
+            // so, in the line below we combine 2 numbers stored for sound into one to know how loud this moment is
+            int sample = (pcmData[i + 1] << 8) | (pcmData[i] & 0xFF);
+            if (Math.abs(sample) > peakThreshold) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public void start() throws LineUnavailableException {
         DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
         microphone = (TargetDataLine) AudioSystem.getLine(info);
@@ -81,12 +97,15 @@ public class AudioRecorder {
                     byte[] bigChunk = bout.toByteArray();
                     if (bigChunk.length > 0) {
                         // submit to sender pool
+                        if (isSilent(bigChunk, 1000)) {
+                            System.out.println("Chunk skipped (silence detected)");
+                            continue;
+                        }
                         senderPool.submit(() -> {
                             try {
                                 File wavFile = writeWavFile(bigChunk);
                                 Thread.sleep(200);
                                 sendToPython(wavFile);
-                                // optionally delete after sending
                                 wavFile.delete();
                             } catch (Exception ex) {
                                 ex.printStackTrace();
