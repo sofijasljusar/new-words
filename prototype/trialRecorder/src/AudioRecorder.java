@@ -26,7 +26,7 @@ public class AudioRecorder {
     private volatile boolean running = false;
 
     public AudioRecorder() {
-        format = new AudioFormat(SAMPLE_RATE, SAMPLE_SIZE_BITS, CHANNELS, SIGNED, BIG_ENDIAN);
+        format = AudioFormatConfig.getFormat();
     }
 
     private boolean isSilent(byte[] pcmData, int peakThreshold) { // list of bytes from the mic
@@ -60,46 +60,9 @@ public class AudioRecorder {
         producer.setDaemon(true);
         producer.start();
 
-        // Consumer thread - assemble consecutive small reads until CHUNK_SECONDS total, then send
-        Thread consumer = new Thread(() -> {
-            try {
-                while (running || !queue.isEmpty()) {
-                    ByteArrayOutputStream bout = new ByteArrayOutputStream(chunkBytes);
-                    int collected = 0;
-                    while (collected < chunkBytes) {
-                        byte[] piece = queue.poll(1, TimeUnit.SECONDS);
-                        if (piece == null) {
-                            if (!running) break;
-                            continue;
-                        }
-                        bout.write(piece);
-                        collected += piece.length;
-                    }
-                    byte[] bigChunk = bout.toByteArray();
-                    if (bigChunk.length > 0) {
-                        // submit to sender pool
-                        if (isSilent(bigChunk, 1000)) {
-                            System.out.println("Chunk skipped (silence detected)");
-                            continue;
-                        }
-                        senderPool.submit(() -> {
-                            try {
-                                File wavFile = writeWavFile(bigChunk);
-                                Thread.sleep(200);
-                                sendToPython(wavFile);
-                                wavFile.delete();
-                            } catch (Exception ex) {
-                                ex.printStackTrace();
-                            }
-                        });
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }, "audio-consumer");
+        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue);
+        Thread consumer = new Thread(consumerRunnable, "audio-consumer");
+
         consumer.setDaemon(true);
         consumer.start();
 
