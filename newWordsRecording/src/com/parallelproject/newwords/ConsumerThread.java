@@ -70,7 +70,6 @@ public class ConsumerThread implements Runnable{
         senderPool.submit(() -> {
             try {
                 File wavFile = wavFileWriter.writeWavFile(bigChunk);
-                Thread.sleep(200);
                 requestSender.sendRequest(wavFile);
             } catch (Exception ex) {
                 ex.printStackTrace();
