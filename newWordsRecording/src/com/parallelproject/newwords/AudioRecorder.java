@@ -10,10 +10,10 @@ import javax.sound.sampled.TargetDataLine;
 
 
 public class AudioRecorder {
-    private static final int AUDIO_CHUNK_LENGTH_IN_SECONDS = 5; // chunk length
+    private static final int AUDIO_CHUNK_LENGTH_IN_SECONDS = 5;
     private static final float SAMPLE_RATE = 16000.0f;
 
-    private final ExecutorService senderPool = Executors.newFixedThreadPool(2); // send concurrently
+    private final ExecutorService senderPool = Executors.newFixedThreadPool(2);
 
     private final BlockingQueue<byte[]> queue = new LinkedBlockingQueue<>();
 
@@ -41,7 +41,7 @@ public class AudioRecorder {
         producer.setDaemon(true);
         producer.start();
 
-        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue);
+        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue, senderPool);
         Thread consumer = new Thread(consumerRunnable, "audio-consumer");
         consumer.setDaemon(true);
         consumer.start();

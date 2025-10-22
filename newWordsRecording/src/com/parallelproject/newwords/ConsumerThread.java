@@ -12,17 +12,18 @@ public class ConsumerThread implements Runnable{
     private volatile boolean running = true;
     private final BlockingQueue<byte[]> queue;
     private final int chunkBytes;
-    private final ExecutorService senderPool = Executors.newFixedThreadPool(2); // send concurrently
+    private final ExecutorService senderPool;
     private final RequestSender requestSender;
     private final WavFileWriter wavFileWriter;
     private final SilenceDetector silenceDetector;
 
-    public ConsumerThread(int chunkBytes, BlockingQueue<byte[]> queue) {
+    public ConsumerThread(int chunkBytes, BlockingQueue<byte[]> queue, ExecutorService senderPool) {
         this.chunkBytes = chunkBytes;
         this.queue = queue;
         this.requestSender = new RequestSender();
         this.wavFileWriter = new WavFileWriter();
         this.silenceDetector = new SilenceDetector();
+        this.senderPool = senderPool;
     }
 
 
@@ -71,6 +72,7 @@ public class ConsumerThread implements Runnable{
             try {
                 File wavFile = wavFileWriter.writeWavFile(bigChunk);
                 requestSender.sendRequest(wavFile);
+                wavFile.delete();
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
