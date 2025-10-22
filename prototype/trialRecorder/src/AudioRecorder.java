@@ -51,36 +51,17 @@ public class AudioRecorder {
         microphone.open(format);
         running = true;
         microphone.start();
+        int bytesPerSecond = (int) (SAMPLE_RATE * format.getFrameSize());
+        int chunkBytes = bytesPerSecond * CHUNK_SECONDS;
 
         // Producer thread - reads raw bytes continuously and splits into chunks
-        Thread producer = new Thread(() -> {
-            int bytesPerSecond = (int) (SAMPLE_RATE * format.getFrameSize());
-            int chunkBytes = bytesPerSecond * CHUNK_SECONDS;
-            byte[] buffer = new byte[chunkBytes];
-            ByteArrayOutputStream rolling = new ByteArrayOutputStream(chunkBytes);
-            try {
-                while (running) {
-                    int read = microphone.read(buffer, 0, buffer.length);
-                    if (read > 0) {
-                        // we will push exact-sized chunk
-                        // copy to avoid reuse
-                        byte[] chunkCopy = new byte[read];
-                        System.arraycopy(buffer, 0, chunkCopy, 0, read);
-                        queue.put(chunkCopy);
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("Producer interrupted");
-            }
-        }, "audio-producer");
+        ProducerThread producerRunnable = new ProducerThread(chunkBytes, queue, microphone);
+        Thread producer = new Thread(producerRunnable, "audio-producer");
         producer.setDaemon(true);
         producer.start();
 
         // Consumer thread - assemble consecutive small reads until CHUNK_SECONDS total, then send
         Thread consumer = new Thread(() -> {
-            int bytesPerSecond = (int) (SAMPLE_RATE * format.getFrameSize());
-            int chunkBytes = bytesPerSecond * CHUNK_SECONDS;
             try {
                 while (running || !queue.isEmpty()) {
                     ByteArrayOutputStream bout = new ByteArrayOutputStream(chunkBytes);
