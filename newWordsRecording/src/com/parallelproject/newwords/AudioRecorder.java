@@ -1,13 +1,8 @@
 package com.parallelproject.newwords;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
+import java.util.concurrent.*;
 
-import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
@@ -15,65 +10,84 @@ import javax.sound.sampled.TargetDataLine;
 
 
 public class AudioRecorder {
-    private static final int BUFFER_SIZE = 4096;
-    private ByteArrayOutputStream recordBytes;
-    private TargetDataLine audioLine;
-    private AudioFormat format;
+    private static final int AUDIO_CHUNK_LENGTH_IN_SECONDS = 5; // chunk length
+    private static final float SAMPLE_RATE = 16000.0f;
 
-    private boolean isRunning;
-    AudioFormat getAudioFormat() {
-        float sampleRate = 44100;
-        int sampleSizeInBits = 16;
-        int channels = 1;
-        boolean signed = true;
-        boolean bigEndian = false;
-        // Mono, 16-bit PCM, little-endian is what Whisper/FasterWhisper need
+    private final ExecutorService senderPool = Executors.newFixedThreadPool(2); // send concurrently
 
-        return new AudioFormat(sampleRate, sampleSizeInBits, channels, signed, bigEndian);
+    private final BlockingQueue<byte[]> queue = new LinkedBlockingQueue<>();
+
+    private TargetDataLine microphone;
+    private final AudioFormat format;
+
+    private volatile boolean isRunning = false;
+
+    public AudioRecorder() {
+        format = AudioFormatConfig.getFormat();
     }
 
-    public void start() throws  LineUnavailableException {
-        format = getAudioFormat();
+    public void start() throws LineUnavailableException {
         DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-
-        if (!AudioSystem.isLineSupported(info)) {
-            throw new LineUnavailableException("The system does not support the specified format.");
-        }
-
-        audioLine = AudioSystem.getTargetDataLine(format);
-
-        audioLine.open(format);
-        audioLine.start();
-
-        byte[] buffer = new byte[BUFFER_SIZE];
-        int bytesRead = 0;
-
-        recordBytes = new ByteArrayOutputStream();
+        microphone = (TargetDataLine) AudioSystem.getLine(info);
+        microphone.open(format);
         isRunning = true;
+        microphone.start();
 
-        while (isRunning) {
-            bytesRead = audioLine.read(buffer, 0, buffer.length);
-            recordBytes.write(buffer, 0, bytesRead);
-        }
+        int bytesPerSecond = (int) (SAMPLE_RATE * format.getFrameSize());
+        int chunkBytes = bytesPerSecond * AUDIO_CHUNK_LENGTH_IN_SECONDS;
+
+        ProducerThread producerRunnable = new ProducerThread(chunkBytes, queue, microphone);
+        Thread producer = new Thread(producerRunnable, "audio-producer");
+        producer.setDaemon(true);
+        producer.start();
+
+        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue);
+        Thread consumer = new Thread(consumerRunnable, "audio-consumer");
+        consumer.setDaemon(true);
+        consumer.start();
+
+        System.out.println("Recording started.");
     }
 
-    public void stop() throws IOException {
+
+    public void stop() {
         isRunning = false;
-
-        if (audioLine != null) {
-            audioLine.drain();
-            audioLine.close();
+        if (microphone != null) {
+            microphone.stop();
+            microphone.close();
         }
+
+        while (!queue.isEmpty()) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        senderPool.shutdown();
+
+        try {
+            if (!senderPool.awaitTermination(10, TimeUnit.SECONDS)) {
+                senderPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            senderPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        System.out.println("Recorder stopped.");
     }
 
-    public void save(File wavfile) throws IOException {
-        byte[] audioData = recordBytes.toByteArray();
-        ByteArrayInputStream bais = new ByteArrayInputStream(audioData);
-        AudioInputStream audioInputStream = new AudioInputStream(bais, format, audioData.length / format.getFrameSize());
-        AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, wavfile);
 
-        audioInputStream.close();
-        recordBytes.close();
+    public static void main(String[] args) throws Exception {
+        AudioRecorder recorder = new AudioRecorder();
+        recorder.start();
+
+        System.out.println("Recording... Press ENTER to stop.");
+        System.in.read();
+
+        recorder.stop();
     }
 
 }
