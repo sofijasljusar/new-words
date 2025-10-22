@@ -1,17 +1,7 @@
-import javax.sound.sampled.AudioFileFormat;
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import java.io.ByteArrayInputStream;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,18 +12,17 @@ public class ConsumerThread implements Runnable{
     private final BlockingQueue<byte[]> queue;
     private final int chunkBytes;
     private final ExecutorService senderPool = Executors.newFixedThreadPool(2); // send concurrently
-    private final HttpClient httpClient;
-    private final AudioFormat format;
+    private final RequestSender requestSender;
+    private final WavFileWriter wavFileWriter;
+    private final SilenceDetector silenceDetector;
 
     public ConsumerThread(int chunkBytes, BlockingQueue<byte[]> queue) {
         this.chunkBytes = chunkBytes;
         this.queue = queue;
-        this.format = AudioFormatConfig.getFormat();
-        httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .build();
+        this.requestSender = new RequestSender();
+        this.wavFileWriter = new WavFileWriter();
+        this.silenceDetector = new SilenceDetector();
     }
-
 
     @Override
     public void run() {
@@ -42,14 +31,12 @@ public class ConsumerThread implements Runnable{
 
                 byte[] bigChunk = collectSizedChunk();
                 if (bigChunk.length > 0) {
-                    if (isSilent(bigChunk)) {
+                    if (silenceDetector.isSilent(bigChunk)) {
                         System.out.println("Chunk skipped (silence detected)");
                         continue;
                     }
 
                     submitToSenderPool(bigChunk);
-
-
                 }
             }
         } catch (InterruptedException e) {
@@ -74,56 +61,17 @@ public class ConsumerThread implements Runnable{
         return bout.toByteArray();
     }
 
-    private boolean isSilent(byte[] pcmData) { // pcmData = list of bytes from the mic
-        for (int i = 0; i < pcmData.length - 1; i += 2) { // sound sample uses 2 bytes
-            // pcmData[i] = first byte (low byte)
-            // pcmData[i+1] = second byte (high byte)
-            // << 8 means “move this byte 8 bits to the left”
-            // & 0xFF makes sure this byte is treated as 0–255 (unsigned)
-            // | (bitwise OR) combines the high byte and low byte into one single 16-bit number
-            // so, in the line below we combine 2 numbers stored for sound into one to know how loud this moment is
-            int sample = (pcmData[i + 1] << 8) | (pcmData[i] & 0xFF);
-            if (Math.abs(sample) > 1000) {  // peak threshold
-                return false;
-            }
-        }
-        return true;
-    }
-
     private void submitToSenderPool(byte[] bigChunk) {
         senderPool.submit(() -> {
             try {
-                File wavFile = writeWavFile(bigChunk);
+                File wavFile = wavFileWriter.writeWavFile(bigChunk);
                 Thread.sleep(200);
-                sendToPython(wavFile);
+                requestSender.sendRequest(wavFile);
                 wavFile.delete();
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
         });
-    }
-
-    private File writeWavFile(byte[] pcmData) throws IOException {
-        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        File out = new File("chunk_" + ts + ".wav");
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(pcmData);
-             AudioInputStream ais = new AudioInputStream(bais, format, pcmData.length / format.getFrameSize())) {
-            AudioSystem.write(ais, AudioFileFormat.Type.WAVE, out);
-        }
-        System.out.println("Wrote " + out.getName() + " (" + pcmData.length + " bytes)");
-        return out;
-    }
-
-    private void sendToPython(File wavFile) throws IOException, InterruptedException {
-        byte[] wavBytes = java.nio.file.Files.readAllBytes(wavFile.toPath());
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:8000/transcribe?autolearn=true"))
-                .header("Content-Type", "audio/wav")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(wavBytes))
-                .build();
-        System.out.println("Sending chunk to Python...");
-        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        System.out.println("Python response: " + resp.statusCode() + " " + resp.body());
     }
 
 
