@@ -13,8 +13,8 @@ import java.time.format.DateTimeFormatter;
 public class WavFileWriter {
     private final AudioFormat format;
 
-    public WavFileWriter() {
-        this.format = AudioFormatConfig.getFormat();
+    public WavFileWriter(AudioFormat format) {
+        this.format = format;
     }
 
     public File writeWavFile(byte[] pcmData) throws IOException {

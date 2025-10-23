@@ -41,7 +41,11 @@ public class AudioRecorder {
         producer.setDaemon(true);
         producer.start();
 
-        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue, senderPool);
+        WavFileWriter wavFileWriter = new WavFileWriter(format);
+        RequestSender requestSender = new RequestSender();
+        SilenceDetector silenceDetector = new SilenceDetector();
+
+        ConsumerThread consumerRunnable = new ConsumerThread(chunkBytes, queue, senderPool, wavFileWriter, silenceDetector, requestSender);
         Thread consumer = new Thread(consumerRunnable, "audio-consumer");
         consumer.setDaemon(true);
         consumer.start();

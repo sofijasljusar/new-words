@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class ConsumerThread implements Runnable{
@@ -17,13 +16,13 @@ public class ConsumerThread implements Runnable{
     private final WavFileWriter wavFileWriter;
     private final SilenceDetector silenceDetector;
 
-    public ConsumerThread(int chunkBytes, BlockingQueue<byte[]> queue, ExecutorService senderPool) {
+    public ConsumerThread(int chunkBytes, BlockingQueue<byte[]> queue, ExecutorService senderPool, WavFileWriter wavFileWriter, SilenceDetector silenceDetector, RequestSender requestSender) {
         this.chunkBytes = chunkBytes;
         this.queue = queue;
-        this.requestSender = new RequestSender();
-        this.wavFileWriter = new WavFileWriter();
-        this.silenceDetector = new SilenceDetector();
         this.senderPool = senderPool;
+        this.wavFileWriter = wavFileWriter;
+        this.silenceDetector = silenceDetector;
+        this.requestSender = requestSender;
     }
 
 
